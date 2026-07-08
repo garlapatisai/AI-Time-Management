@@ -111,7 +111,7 @@ export default function Home() {
   const [activeFocusTab, setActiveFocusTab] = useState<"pomo" | "deep" | "custom">("pomo");
 
   // API base URL
-  const API_URL = "http://localhost:8000/api";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   // Fetch functions
   const fetchTasks = async () => {
@@ -1591,7 +1591,7 @@ export default function Home() {
                     if (confirm("Reset database with fresh tasks and activity logs?")) {
                       setIsProcessing(true);
                       try {
-                        const res = await fetch(`http://localhost:8000/api/health`);
+                        const res = await fetch(`${API_URL}/health`);
                         if (res.ok) {
                           alert("Database reset requested. Make sure seed.py is triggered in backend.");
                         }
