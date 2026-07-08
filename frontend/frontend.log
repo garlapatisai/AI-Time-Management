@@ -5,9 +5,13 @@
 ▲ Next.js 16.2.10 (Turbopack)
 - Local:         http://localhost:3000
 - Network:       http://192.168.0.103:3000
-✓ Ready in 422ms
+✓ Ready in 325ms
 
- GET / 200 in 527ms (next.js: 308ms, application-code: 219ms)
- GET / 200 in 134ms (next.js: 3ms, application-code: 131ms)
- GET / 200 in 62ms (next.js: 19ms, application-code: 43ms)
- GET / 200 in 38ms (next.js: 4ms, application-code: 34ms)
+ GET / 200 in 186ms (next.js: 99ms, application-code: 86ms)
+ GET / 200 in 81ms (next.js: 18ms, application-code: 63ms)
+✓ Compiled in 357ms
+[browser] Voice recording failed to start: NotAllowedError: Permission dismissed (file:///Users/sai/Documents/AI TIME MANAGMENT/frontend/.next/dev/static/chunks/src_app_page_tsx_1gecvfk._.js?id=%255Bproject%255D%252Fsrc%252Fapp%252Fpage.tsx+%255Bapp-client%255D+%2528ecmascript%2529:331:21)
+✓ Compiled in 149ms
+✓ Compiled in 61ms
+✓ Compiled in 65ms
+✓ Compiled in 137ms

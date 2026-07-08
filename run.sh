@@ -11,13 +11,11 @@ echo -e "${BLUE}Starting AI Time Management Assistant services...${NC}"
 # Get directory path
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-# Kill any existing processes on port 8000, 3000, 8501 to avoid conflicts
+# Kill any existing processes on port 8000 and 3000 to avoid conflicts
 echo "Cleaning up existing processes..."
 kill -9 $(lsof -t -i:8000) 2>/dev/null
 kill -9 $(lsof -t -i:3000) 2>/dev/null
-kill -9 $(lsof -t -i:8501) 2>/dev/null
 pkill -f "python agent.py" 2>/dev/null
-pkill -f "streamlit run" 2>/dev/null
 sleep 1
 
 # Start Backend
@@ -33,13 +31,6 @@ cd "$DIR/frontend"
 nohup npm run dev > "$DIR/frontend/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 
-# Start Streamlit Frontend
-echo -e "${BLUE}Starting Streamlit Frontend on http://localhost:8501...${NC}"
-cd "$DIR"
-source backend/venv/bin/activate
-nohup streamlit run streamlit_app.py --server.port 8501 > "$DIR/streamlit.log" 2>&1 &
-STREAMLIT_PID=$!
-
 # Start MacOS Agent
 echo -e "${BLUE}Starting MacOS Activity Tracking Agent...${NC}"
 cd "$DIR/backend"
@@ -49,23 +40,20 @@ AGENT_PID=$!
 
 echo -e "${GREEN}All services launched in background!${NC}"
 echo -e "Next.js Frontend: ${GREEN}http://localhost:3000${NC}"
-echo -e "Streamlit Frontend: ${GREEN}http://localhost:8501${NC}"
 echo -e "Backend API: ${GREEN}http://localhost:8000/docs${NC}"
 echo ""
 echo -e "Logs are being redirected to:"
 echo -e "  - Backend log: ${BLUE}$DIR/backend/backend.log${NC}"
 echo -e "  - Next.js log: ${BLUE}$DIR/frontend/frontend.log${NC}"
-echo -e "  - Streamlit log: ${BLUE}$DIR/streamlit.log${NC}"
 echo -e "  - Agent log: ${BLUE}$DIR/backend/agent.log${NC}"
 echo ""
 
 # Write a stop script for easy cleanup
 echo "#!/bin/bash" > "$DIR/stop.sh"
 echo "echo 'Stopping all AI Time Management services...'" >> "$DIR/stop.sh"
-echo "kill -9 $BACKEND_PID $FRONTEND_PID $STREAMLIT_PID $AGENT_PID 2>/dev/null" >> "$DIR/stop.sh"
-echo "kill -9 \$(lsof -t -i:8000) \$(lsof -t -i:3000) \$(lsof -t -i:8501) 2>/dev/null" >> "$DIR/stop.sh"
+echo "kill -9 $BACKEND_PID $FRONTEND_PID $AGENT_PID 2>/dev/null" >> "$DIR/stop.sh"
+echo "kill -9 \$(lsof -t -i:8000) \$(lsof -t -i:3000) 2>/dev/null" >> "$DIR/stop.sh"
 echo "pkill -f 'python agent.py' 2>/dev/null" >> "$DIR/stop.sh"
-echo "pkill -f 'streamlit run' 2>/dev/null" >> "$DIR/stop.sh"
 echo "echo 'All services stopped!'" >> "$DIR/stop.sh"
 chmod +x "$DIR/stop.sh"
 

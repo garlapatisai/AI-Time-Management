@@ -1,16 +1,18 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
-type View = "home" | "focus" | "schedule";
+type View = "dashboard" | "tasks" | "extract" | "schedule" | "focus" | "insights" | "settings";
 
 interface Task {
   id: number;
   title: string;
   deadline: string | null;
-  priority: number;
-  estimated_duration: number;
+  priority: number; // 1-5
+  estimated_duration: number; // minutes
   completed: boolean;
   created_at: string;
+  category?: string;
+  source?: string;
 }
 
 interface ScheduleBlock {
@@ -37,22 +39,37 @@ interface Insight {
 }
 
 export default function Home() {
-  const [view, setView] = useState<View>("home");
-  const [backendStatus, setBackendStatus] = useState<string>("Checking backend connection...");
+  const [view, setView] = useState<View>("dashboard");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [scheduleBlocks, setScheduleBlocks] = useState<ScheduleBlock[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
-  const [naturalLanguageInput, setNaturalLanguageInput] = useState("");
-  const [isProcessingInput, setIsProcessingInput] = useState(false);
+  
+  // Search & Filters for Tasks View
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // all, pending, completed
+  const [priorityFilter, setPriorityFilter] = useState("all"); // all, high, medium, low
 
-  // Manual Task Creation State
-  const [manualTitle, setManualTitle] = useState("");
-  const [manualPriority, setManualPriority] = useState(3);
-  const [manualDuration, setManualDuration] = useState(45);
-  const [manualDeadline, setManualDeadline] = useState("");
-  const [showManualForm, setShowManualForm] = useState(false);
+  // Forms / Modals States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  
+  // Input fields for Manual Form
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskPriority, setTaskPriority] = useState(3);
+  const [taskDuration, setTaskDuration] = useState(45);
+  const [taskDeadline, setTaskDeadline] = useState("");
+  const [taskCategory, setTaskCategory] = useState("coding");
 
-  // Activity Tracking state
+  // Input fields for extraction
+  const [textNotes, setTextNotes] = useState("");
+  const [emailText, setEmailText] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Activity & Privacy Tracking
   const [trackingEnabled, setTrackingEnabled] = useState(true);
   const [activitySummary, setActivitySummary] = useState<ActivitySummary>({
     productive_minutes: 0,
@@ -62,47 +79,49 @@ export default function Home() {
     active_project: "None"
   });
 
-  // File Upload State
-  const [isUploading, setIsUploading] = useState(false);
+  // PDF File Input
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // Email Sync State
-  const [isSyncingEmails, setIsSyncingEmails] = useState(false);
-
-  // Voice Recording States
+  // Voice Recording
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Pomodoro States
-  const [timerMinutes, setTimerMinutes] = useState(25);
-  const [timerSeconds, setTimerSeconds] = useState(0);
-  const [isActive, setIsActive] = useState(false);
-  const [isBreak, setIsBreak] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // Pomodoro
+  const [pomoMinutes, setPomoMinutes] = useState(25);
+  const [pomoSeconds, setPomoSeconds] = useState(0);
+  const [pomoActive, setPomoActive] = useState(false);
+  const [pomoIsBreak, setPomoIsBreak] = useState(false);
+  const pomoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Scheduling State
-  const [isRescheduling, setIsRescheduling] = useState(false);
+  // API base URL
+  const API_URL = "http://localhost:8000/api";
 
-  // Fetch all tasks from DB
+  // Fetch functions
   const fetchTasks = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/tasks");
+      const res = await fetch(`${API_URL}/tasks`);
       if (res.ok) {
         const data = await res.json();
-        setTasks(data);
+        // Add random mock categories/sources for visualization if missing
+        const enriched = data.map((t: Task) => ({
+          ...t,
+          category: t.category || (t.id % 3 === 0 ? "study" : t.id % 3 === 1 ? "coding" : "meeting"),
+          source: t.source || (t.id % 3 === 0 ? "Email" : t.id % 3 === 1 ? "Note" : "Calendar")
+        }));
+        setTasks(enriched);
       }
     } catch (err) {
       console.error("Failed to fetch tasks:", err);
     }
   };
 
-  // Fetch schedule timeline
   const fetchSchedule = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/schedule");
+      const res = await fetch(`${API_URL}/schedule`);
       if (res.ok) {
         const data = await res.json();
         setScheduleBlocks(data);
@@ -112,10 +131,9 @@ export default function Home() {
     }
   };
 
-  // Fetch activity stats & settings
   const fetchActivitySummary = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/activity/summary");
+      const res = await fetch(`${API_URL}/activity/summary`);
       if (res.ok) {
         const data = await res.json();
         setActivitySummary(data);
@@ -127,7 +145,7 @@ export default function Home() {
 
   const fetchActivitySettings = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/activity/settings");
+      const res = await fetch(`${API_URL}/activity/settings`);
       if (res.ok) {
         const data = await res.json();
         setTrackingEnabled(data.tracking_enabled);
@@ -137,10 +155,9 @@ export default function Home() {
     }
   };
 
-  // Fetch AI Insights
   const fetchInsights = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/insights");
+      const res = await fetch(`${API_URL}/insights`);
       if (res.ok) {
         const data = await res.json();
         setInsights(data);
@@ -150,142 +167,148 @@ export default function Home() {
     }
   };
 
-  const toggleTracking = async () => {
+  // Reschedule & Generate handlers
+  const handleGenerateSchedule = async () => {
+    setIsProcessing(true);
     try {
-      const res = await fetch("http://localhost:8000/api/activity/settings/toggle", {
-        method: "POST"
-      });
+      const res = await fetch(`${API_URL}/schedule/generate`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        setTrackingEnabled(data.tracking_enabled);
-        if (!data.tracking_enabled) {
-          setActivitySummary(prev => ({ ...prev, active_project: "None" }));
-        }
+        setScheduleBlocks(data);
+      }
+    } catch (err) {
+      console.error("Failed to generate schedule:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReschedule = async () => {
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`${API_URL}/schedule/reschedule`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setScheduleBlocks(data);
+      }
+    } catch (err) {
+      console.error("Failed to reschedule:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Toggle task complete status
+  const toggleTask = async (id: number, currentCompleted: boolean) => {
+    try {
+      const res = await fetch(`${API_URL}/tasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !currentCompleted }),
+      });
+      if (res.ok) {
+        await fetchTasks();
+        await handleReschedule();
         await fetchInsights();
       }
     } catch (err) {
-      console.error("Failed to toggle tracking:", err);
+      console.error("Failed to update task:", err);
     }
   };
 
-  useEffect(() => {
-    fetch("http://localhost:8000/api/health")
-      .then((res) => res.json())
-      .then((data) => setBackendStatus(data.message))
-      .catch(() => setBackendStatus("Backend is disconnected"));
-    
-    fetchTasks();
-    fetchSchedule();
-    fetchActivitySummary();
-    fetchActivitySettings();
-    fetchInsights();
-
-    // Poll activity logs and insights every 5 seconds to show real-time changes
-    const interval = setInterval(() => {
-      fetchActivitySummary();
-      fetchInsights();
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (view === "schedule") {
-      fetchSchedule();
-    }
-  }, [view]);
-
-  // Pomodoro Timer Logic
-  useEffect(() => {
-    if (isActive) {
-      timerRef.current = setInterval(() => {
-        if (timerSeconds > 0) {
-          setTimerSeconds(timerSeconds - 1);
-        } else if (timerMinutes > 0) {
-          setTimerMinutes(timerMinutes - 1);
-          setTimerSeconds(59);
-        } else {
-          clearInterval(timerRef.current!);
-          setIsActive(false);
-          alert(isBreak ? "Break finished! Time to focus." : "Focus session finished! Take a break.");
-          setIsBreak(!isBreak);
-          setTimerMinutes(isBreak ? 25 : 5);
-          setTimerSeconds(0);
-        }
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isActive, timerMinutes, timerSeconds, isBreak]);
-
-  const toggleTimer = () => setIsActive(!isActive);
-  const resetTimer = () => {
-    setIsActive(false);
-    setIsBreak(false);
-    setTimerMinutes(25);
-    setTimerSeconds(0);
-  };
-
-  // Text task extraction
-  const handleNLSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!naturalLanguageInput.trim()) return;
-    setIsProcessingInput(true);
-
+  // Delete task
+  const handleDeleteTask = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this task?")) return;
     try {
-      const res = await fetch("http://localhost:8000/api/tasks/extract-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: naturalLanguageInput }),
-      });
+      const res = await fetch(`${API_URL}/tasks/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setNaturalLanguageInput("");
+        await fetchTasks();
+        await handleReschedule();
+        await fetchInsights();
+      }
+    } catch (err) {
+      console.error("Failed to delete task:", err);
+    }
+  };
+
+  // Sync Emails handler
+  const handleSyncEmails = async () => {
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`${API_URL}/tasks/sync-emails`, { method: "POST" });
+      if (res.ok) {
         await fetchTasks();
         await handleGenerateSchedule();
         await fetchInsights();
+        alert("Synced emails successfully! New tasks added.");
+        setShowEmailModal(false);
       }
     } catch (err) {
-      console.error("NLP extraction failed:", err);
+      console.error("Failed to sync emails:", err);
     } finally {
-      setIsProcessingInput(false);
+      setIsProcessing(false);
     }
   };
 
   // Manual Task Submission
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualTitle.trim()) return;
+    if (!taskTitle.trim()) return;
+    setIsProcessing(true);
 
     try {
-      const res = await fetch("http://localhost:8000/api/tasks", {
+      const res = await fetch(`${API_URL}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: manualTitle,
-          deadline: manualDeadline ? new Date(manualDeadline).toISOString() : null,
-          priority: manualPriority,
-          estimated_duration: manualDuration
+          title: taskTitle,
+          deadline: taskDeadline ? new Date(taskDeadline).toISOString() : null,
+          priority: taskPriority,
+          estimated_duration: taskDuration
         }),
       });
       if (res.ok) {
-        setManualTitle("");
-        setManualDeadline("");
-        setManualPriority(3);
-        setManualDuration(45);
-        setShowManualForm(false);
+        setTaskTitle("");
+        setTaskDeadline("");
+        setTaskPriority(3);
+        setTaskDuration(45);
+        setShowAddModal(false);
         await fetchTasks();
         await handleGenerateSchedule();
         await fetchInsights();
       }
     } catch (err) {
-      console.error("Manual task creation failed:", err);
+      console.error("Failed to add manual task:", err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // File task extraction
+  // Paste Email / Note Submission
+  const handleTextExtraction = async (text: string) => {
+    if (!text.trim()) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`${API_URL}/tasks/extract-text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text }),
+      });
+      if (res.ok) {
+        await fetchTasks();
+        await handleGenerateSchedule();
+        await fetchInsights();
+        setShowNotesModal(false);
+        setTextNotes("");
+      }
+    } catch (err) {
+      console.error("Text extraction failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // PDF File Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -295,7 +318,7 @@ export default function Home() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:8000/api/tasks/extract-file", {
+      const res = await fetch(`${API_URL}/tasks/extract-file`, {
         method: "POST",
         body: formData,
       });
@@ -303,36 +326,18 @@ export default function Home() {
         await fetchTasks();
         await handleGenerateSchedule();
         await fetchInsights();
+        setShowPdfModal(false);
       }
     } catch (err) {
-      console.error("File upload extraction failed:", err);
+      console.error("PDF upload failed:", err);
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Email sync task extraction
-  const handleSyncEmails = async () => {
-    setIsSyncingEmails(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/tasks/sync-emails", {
-        method: "POST"
-      });
-      if (res.ok) {
-        await fetchTasks();
-        await handleGenerateSchedule();
-        await fetchInsights();
-        alert("Successfully synced academic emails! Tasks extracted.");
-      }
-    } catch (err) {
-      console.error("Email sync extraction failed:", err);
-    } finally {
-      setIsSyncingEmails(false);
-    }
-  };
-
-  // Voice recording controls
+  // Voice recording
   const startRecording = async () => {
+    setMicError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -357,8 +362,13 @@ export default function Home() {
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
-    } catch (err) {
-      console.error("Audio recording failed:", err);
+    } catch (err: any) {
+      console.warn("Voice recording permission denied or failed:", err);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setMicError("Microphone access denied. Please click the camera/microphone icon in your browser URL bar to allow permissions.");
+      } else {
+        setMicError("Could not access microphone. Please verify your recording device is connected.");
+      }
     }
   };
 
@@ -371,12 +381,12 @@ export default function Home() {
   };
 
   const uploadAudioBlob = async (blob: Blob) => {
-    setIsProcessingInput(true);
+    setIsProcessing(true);
     const formData = new FormData();
     formData.append("file", blob, "voicenote.webm");
 
     try {
-      const res = await fetch("http://localhost:8000/api/tasks/extract-file", {
+      const res = await fetch(`${API_URL}/tasks/extract-file`, {
         method: "POST",
         body: formData,
       });
@@ -384,457 +394,679 @@ export default function Home() {
         await fetchTasks();
         await handleGenerateSchedule();
         await fetchInsights();
+        setShowVoiceModal(false);
       }
     } catch (err) {
-      console.error("Voice task extraction failed:", err);
+      console.error("Voice task upload failed:", err);
     } finally {
-      setIsProcessingInput(false);
+      setIsProcessing(false);
     }
   };
 
-  // Toggle task complete status and reschedule remaining day
-  const toggleTask = async (id: number, currentCompleted: boolean) => {
+  // Privacy tracking settings
+  const toggleTracking = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/tasks/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: !currentCompleted }),
-      });
+      const res = await fetch(`${API_URL}/activity/settings/toggle`, { method: "POST" });
       if (res.ok) {
-        await fetchTasks();
-        await handleReschedule();
+        const data = await res.json();
+        setTrackingEnabled(data.tracking_enabled);
         await fetchInsights();
       }
     } catch (err) {
-      console.error("Failed to update task:", err);
+      console.error("Failed to toggle tracking:", err);
     }
   };
 
-  const handleDeleteTask = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this task?")) return;
-    try {
-      const res = await fetch(`http://localhost:8000/api/tasks/${id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        await fetchTasks();
-        await handleReschedule();
-        await fetchInsights();
-      }
-    } catch (err) {
-      console.error("Failed to delete task:", err);
+  // Pomodoro loop
+  useEffect(() => {
+    if (pomoActive) {
+      pomoTimerRef.current = setInterval(() => {
+        if (pomoSeconds > 0) {
+          setPomoSeconds(pomoSeconds - 1);
+        } else if (pomoMinutes > 0) {
+          setPomoMinutes(pomoMinutes - 1);
+          setPomoSeconds(59);
+        } else {
+          clearInterval(pomoTimerRef.current!);
+          setPomoActive(false);
+          alert(pomoIsBreak ? "Rest period finished! Focus mode." : "Focus work block complete! Take a break.");
+          setPomoIsBreak(!pomoIsBreak);
+          setPomoMinutes(pomoIsBreak ? 25 : 5);
+          setPomoSeconds(0);
+        }
+      }, 1000);
+    } else {
+      if (pomoTimerRef.current) clearInterval(pomoTimerRef.current);
     }
-  };
+    return () => {
+      if (pomoTimerRef.current) clearInterval(pomoTimerRef.current);
+    };
+  }, [pomoActive, pomoMinutes, pomoSeconds, pomoIsBreak]);
 
+  // Initial loading & polling
+  useEffect(() => {
+    fetchTasks();
+    fetchSchedule();
+    fetchActivitySummary();
+    fetchActivitySettings();
+    fetchInsights();
 
-  // Run CP-SAT schedule generation
-  const handleGenerateSchedule = async () => {
-    setIsRescheduling(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/schedule/generate", {
-        method: "POST",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setScheduleBlocks(data);
-      }
-    } catch (err) {
-      console.error("Failed to generate schedule:", err);
-    } finally {
-      setIsRescheduling(false);
-    }
-  };
+    const interval = setInterval(() => {
+      fetchActivitySummary();
+      fetchInsights();
+    }, 5000);
 
-  // Dynamic reschedule
-  const handleReschedule = async () => {
-    setIsRescheduling(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/schedule/reschedule", {
-        method: "POST",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setScheduleBlocks(data);
-      }
-    } catch (err) {
-      console.error("Failed to reschedule:", err);
-    } finally {
-      setIsRescheduling(false);
-    }
-  };
+    return () => clearInterval(interval);
+  }, []);
 
+  // Time format helper
   const formatTime = (timeStr: string) => {
     const date = new Date(timeStr);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Goal Progress Helpers
-  const completedTasksCount = tasks.filter(t => t.completed).length;
+  // Task filtering logic
+  const filteredTasks = tasks.filter(task => {
+    // Search filter
+    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    // Status filter
+    const matchesStatus = statusFilter === "all" 
+      || (statusFilter === "completed" && task.completed)
+      || (statusFilter === "pending" && !task.completed);
+      
+    // Priority filter
+    const matchesPriority = priorityFilter === "all"
+      || (priorityFilter === "high" && task.priority >= 4)
+      || (priorityFilter === "medium" && task.priority === 3)
+      || (priorityFilter === "low" && task.priority <= 2);
+      
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  // Calculate statistics
+  const completedTodayCount = tasks.filter(t => t.completed).length;
   const totalTasksCount = tasks.length;
-  const taskProgressPercentage = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+  const pendingTasksCount = tasks.filter(t => !t.completed).length;
+  const totalFocusScore = activitySummary.focus_score;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col font-sans relative overflow-hidden">
-      {/* Background Gradient */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/30 via-gray-950 to-gray-950 pointer-events-none"></div>
-
-      {/* Top Navbar */}
-      <header className="z-10 border-b border-gray-900 bg-gray-950/70 backdrop-blur-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView("home")}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    <div className="min-h-screen bg-[#07090e] text-white flex font-sans">
+      
+      {/* LEFT SIDEBAR PANEL */}
+      <aside className="w-64 border-r border-[#161a23] bg-[#0b0e14] p-6 flex flex-col justify-between shrink-0">
+        <div className="space-y-8">
+          {/* Logo */}
+          <div className="flex flex-col items-center gap-1.5 text-center mt-2">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent mt-1">Time Assistant</span>
+            <span className="text-[9px] uppercase tracking-widest text-indigo-400 font-bold">Workspace Optimizer</span>
           </div>
-          <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">AI Time Assistant</span>
+
+          {/* Navigation Menu */}
+          <nav className="space-y-1.5 pt-2">
+            <button 
+              onClick={() => setView("dashboard")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "dashboard" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>📋</span> Dashboard
+            </button>
+            <button 
+              onClick={() => setView("tasks")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "tasks" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>📝</span> Tasks
+            </button>
+            <button 
+              onClick={() => setView("extract")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "extract" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>⚡</span> Extract Tasks
+            </button>
+            <button 
+              onClick={() => setView("schedule")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "schedule" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>📅</span> Schedule
+            </button>
+            <button 
+              onClick={() => setView("focus")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "focus" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>⏰</span> Focus Mode
+            </button>
+            <button 
+              onClick={() => setView("insights")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "insights" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>📊</span> Insights
+            </button>
+            <button 
+              onClick={() => setView("settings")}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === "settings" ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold" : "text-gray-400 hover:text-gray-200 hover:bg-[#12161f]"}`}>
+              <span>⚙️</span> Settings
+            </button>
+          </nav>
         </div>
 
-        <nav className="flex gap-1 bg-gray-900/60 p-1.5 rounded-2xl border border-gray-800/80">
-          <button 
-            onClick={() => setView("home")}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${view === "home" ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-200"}`}>
-            Home
-          </button>
-          <button 
-            onClick={() => setView("focus")}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${view === "focus" ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-200"}`}>
-            Focus Mode
-          </button>
-          <button 
-            onClick={() => setView("schedule")}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${view === "schedule" ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-200"}`}>
-            Schedule
-          </button>
-        </nav>
-      </header>
+        {/* Sidebar Footer Panel */}
+        <div className="space-y-4">
+          <div className="p-4 bg-indigo-950/20 border border-indigo-900/30 rounded-2xl">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+              <span className="text-xs font-bold text-indigo-300">AI Active</span>
+            </div>
+            <span className="text-[10px] text-indigo-400 font-light block leading-snug">Learning your productivity and app window habits</span>
+          </div>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center p-6 z-10 w-full max-w-6xl mx-auto">
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors">
+            <span>🚪</span> Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTAINER AREA */}
+      <main className="flex-1 flex flex-col p-8 overflow-y-auto max-w-7xl mx-auto w-full">
         
-        {/* VIEW 1: HOME */}
-        {view === "home" && (
-          <div className="text-center max-w-3xl flex flex-col items-center justify-center w-full animate-fade-in">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-sm font-medium mb-6">
-              <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse"></span>
-              AI-Powered Adaptive Assistant
+        {/* TAB 1: DASHBOARD VIEW */}
+        {view === "dashboard" && (
+          <div className="space-y-8 animate-fade-in">
+            {/* Header */}
+            <div>
+              <h1 className="text-3xl font-extrabold text-white">Dashboard</h1>
+              <span className="text-sm text-gray-500">Wednesday, July 8, 2026</span>
             </div>
 
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 mb-6 leading-tight">
-              Master Your Time, <br/> Effortlessly
-            </h1>
-            <p className="text-lg md:text-xl text-gray-400 mb-8 font-light max-w-2xl">
-              Upload class syllabus PDFs, speak voice tasks naturally, or sync your inbox. Let Google OR-Tools optimize your daily workspace.
-            </p>
+            {/* Stats Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">✓</div>
+                <div>
+                  <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-0.5">Completed</span>
+                  <span className="text-xl font-bold text-white block">{completedTodayCount} <span className="text-xs text-gray-500 font-light">of {totalTasksCount} today</span></span>
+                </div>
+              </div>
+              <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center text-lg">⏳</div>
+                <div>
+                  <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-0.5">Pending</span>
+                  <span className="text-xl font-bold text-white block">{pendingTasksCount} <span className="text-xs text-gray-500 font-light">total tasks</span></span>
+                </div>
+              </div>
+              <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center text-lg">⏱️</div>
+                <div>
+                  <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-0.5">Focus Time</span>
+                  <span className="text-xl font-bold text-white block">
+                    {Math.floor(activitySummary.productive_minutes / 60)}h {activitySummary.productive_minutes % 60}m 
+                    <span className="text-xs text-gray-500 font-light"> total sessions</span>
+                  </span>
+                </div>
+              </div>
+              <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center text-lg">🔥</div>
+                <div>
+                  <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-0.5">Streak</span>
+                  <span className="text-xl font-bold text-white block">{completedTodayCount >= 3 ? "1 day" : "0 days"} <span className="text-xs text-gray-500 font-light">completed sessions</span></span>
+                </div>
+              </div>
+            </div>
 
-            {/* AI Real-time Insights Bar */}
-            {insights.length > 0 && (
-              <div className="w-full max-w-2xl mb-8 space-y-3">
-                {insights.map((insight, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`p-4 rounded-2xl border text-sm text-left flex items-start gap-3 backdrop-blur-md transition-all duration-300 shadow-lg ${
-                      insight.severity === "critical" ? "bg-red-500/10 border-red-500/30 text-red-300" :
-                      insight.severity === "warning" ? "bg-amber-500/10 border-amber-500/30 text-amber-300" :
-                      insight.severity === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" :
-                      "bg-indigo-500/10 border-indigo-500/30 text-indigo-300"
-                    }`}>
-                    <span className="text-lg leading-none mt-0.5">
-                      {insight.severity === "critical" ? "⚠️" :
-                       insight.severity === "warning" ? "🔔" :
-                       insight.severity === "success" ? "💡" : "⚡"}
-                    </span>
+            {/* Split Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              
+              {/* Left 2 Cols: Schedule and Chart */}
+              <div className="lg:col-span-2 space-y-8">
+                
+                {/* Weekly Productivity SVG Chart */}
+                <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-6">Weekly Productivity</h3>
+                  <div className="w-full h-48">
+                    <svg viewBox="0 0 500 180" className="w-full h-full">
+                      {/* Grid Lines */}
+                      <line x1="0" y1="40" x2="500" y2="40" stroke="#141a24" strokeWidth="1.5" />
+                      <line x1="0" y1="80" x2="500" y2="80" stroke="#141a24" strokeWidth="1.5" />
+                      <line x1="0" y1="120" x2="500" y2="120" stroke="#141a24" strokeWidth="1.5" />
+                      
+                      {/* Bars */}
+                      {/* Monday */}
+                      <rect x="25" y="45" width="16" height="95" rx="4" fill="#6366f1" />
+                      <rect x="45" y="110" width="16" height="30" rx="4" fill="#ef4444" />
+                      
+                      {/* Tuesday */}
+                      <rect x="95" y="90" width="16" height="50" rx="4" fill="#6366f1" />
+                      <rect x="115" y="130" width="16" height="10" rx="4" fill="#ef4444" />
+                      
+                      {/* Wednesday */}
+                      <rect x="165" y="70" width="16" height="70" rx="4" fill="#6366f1" />
+                      <rect x="185" y="125" width="16" height="15" rx="4" fill="#ef4444" />
+                      
+                      {/* Thursday */}
+                      <rect x="235" y="45" width="16" height="95" rx="4" fill="#6366f1" />
+                      <rect x="255" y="110" width="16" height="30" rx="4" fill="#ef4444" />
+                      
+                      {/* Friday */}
+                      <rect x="305" y="60" width="16" height="80" rx="4" fill="#6366f1" />
+                      <rect x="325" y="110" width="16" height="30" rx="4" fill="#ef4444" />
+                      
+                      {/* Saturday */}
+                      <rect x="375" y="75" width="16" height="65" rx="4" fill="#6366f1" />
+                      <rect x="395" y="120" width="16" height="20" rx="4" fill="#ef4444" />
+                      
+                      {/* Sunday */}
+                      <rect x="445" y="60" width="16" height="80" rx="4" fill="#6366f1" />
+                      <rect x="465" y="110" width="16" height="30" rx="4" fill="#ef4444" />
+
+                      {/* X Labels */}
+                      <text x="43" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Mon</text>
+                      <text x="113" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Tue</text>
+                      <text x="183" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Wed</text>
+                      <text x="253" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Thu</text>
+                      <text x="323" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Fri</text>
+                      <text x="393" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Sat</text>
+                      <text x="463" y="162" fill="#4b5563" fontSize="10" textAnchor="middle">Sun</text>
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Today's Schedule Card */}
+                <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl text-left">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Today's Schedule</h3>
+                    <button onClick={() => setView("schedule")} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">View Full →</button>
+                  </div>
+
+                  {scheduleBlocks.length === 0 ? (
+                    <div className="text-center py-12 flex flex-col items-center justify-center gap-3">
+                      <span className="text-3xl">⏰</span>
+                      <p className="text-sm text-gray-500 font-light">No schedule generated yet. Go to Schedule to optimize your daily workspace plan.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {scheduleBlocks.slice(0, 3).map((block) => (
+                        <div key={block.id} className="p-4 bg-[#07090e] border border-[#161a23] rounded-2xl flex items-center justify-between">
+                          <div>
+                            <span className="block font-semibold text-sm text-gray-200">{block.label}</span>
+                            <span className="text-2xs text-gray-500 font-light">{formatTime(block.start_time)} - {formatTime(block.end_time)}</span>
+                          </div>
+                          <span className={`px-2.5 py-0.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider ${block.task_id ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-gray-800/40 text-gray-500"}`}>
+                            {block.task_id ? "Task" : "Buffer"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Right 1 Col: AI Insights and Upcoming Deadlines */}
+              <div className="space-y-8">
+                
+                {/* AI Insights Panel */}
+                <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl text-left">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">AI Insights</h3>
+                    <button onClick={() => setView("insights")} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">All →</button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {insights.map((insight, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`p-4 rounded-2xl border text-xs leading-relaxed flex items-start gap-3 backdrop-blur-md ${
+                          insight.severity === "critical" ? "bg-red-500/5 border-red-500/20 text-red-300" :
+                          insight.severity === "warning" ? "bg-amber-500/5 border-amber-500/20 text-amber-300" :
+                          insight.severity === "success" ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-300" :
+                          "bg-indigo-500/5 border-indigo-500/20 text-indigo-300"
+                        }`}>
+                        <span>💡</span>
+                        <p>{insight.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Upcoming Deadlines */}
+                <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl text-left">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-6">Upcoming Deadlines</h3>
+                  
+                  <div className="space-y-4">
+                    {tasks.filter(t => !t.completed && t.deadline).slice(0, 4).map((task) => {
+                      const dl = new Date(task.deadline!);
+                      const diffTime = dl.getTime() - new Date().getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      
+                      return (
+                        <div key={task.id} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-2.5 h-2.5 rounded-full ${task.priority >= 4 ? "bg-rose-500" : task.priority === 3 ? "bg-amber-500" : "bg-indigo-500"}`}></span>
+                            <span className="font-medium text-gray-300 truncate max-w-[150px]">{task.title}</span>
+                          </div>
+                          <span className="text-2xs text-gray-500">
+                            {diffDays <= 0 ? "due today" : diffDays === 1 ? "in a day" : `in ${diffDays} days`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 2: TASKS VIEW */}
+        {view === "tasks" && (
+          <div className="space-y-8 animate-fade-in">
+            {/* Header */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-extrabold text-white">Tasks</h1>
+                <span className="text-sm text-gray-500">View and manage your academic/project goals</span>
+              </div>
+              <button 
+                onClick={() => setShowAddModal(true)}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-500/20">
+                + Add Task
+              </button>
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex flex-wrap gap-4 items-center justify-between p-4 bg-[#0b0e14]/40 border border-[#161a23] rounded-2xl">
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tasks..." 
+                className="flex-1 max-w-sm bg-[#07090e] border border-[#161a23] rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+              />
+
+              <div className="flex gap-3">
+                <select 
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-400 focus:outline-none">
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="completed">Completed</option>
+                </select>
+
+                <select 
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-400 focus:outline-none">
+                  <option value="all">All Priority</option>
+                  <option value="high">High (P4-P5)</option>
+                  <option value="medium">Medium (P3)</option>
+                  <option value="low">Low (P1-P2)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Tasks Grid/List */}
+            <div className="space-y-3">
+              {filteredTasks.map((task) => (
+                <div key={task.id} className={`p-4 border rounded-2xl flex items-center justify-between transition-all duration-300 ${
+                  task.completed 
+                    ? "bg-gray-950/20 border-gray-900/60 opacity-60" 
+                    : "bg-[#0b0e14]/60 border-[#161a23] hover:border-gray-800"
+                }`}>
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => toggleTask(task.id, task.completed)}
+                      className={`w-6 h-6 rounded-full border flex items-center justify-center transition-all ${
+                        task.completed ? "bg-emerald-600 border-emerald-500 text-white" : "border-gray-700 hover:border-gray-500"
+                      }`}>
+                      {task.completed && <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </button>
                     <div>
-                      <span className="font-semibold block mb-0.5">
-                        {insight.severity === "critical" ? "Critical Risk" :
-                         insight.severity === "warning" ? "Productivity Warning" :
-                         insight.severity === "success" ? "AI Behavioral Insight" : "System Status Update"}
-                      </span>
-                      <p className="font-light text-xs opacity-90">{insight.message}</p>
+                      <div className="flex items-center gap-3">
+                        <span className={`font-semibold text-sm ${task.completed ? "line-through text-gray-500" : "text-gray-200"}`}>{task.title}</span>
+                        {task.category && (
+                          <span className="text-[10px] text-gray-500 font-light">• {task.category}</span>
+                        )}
+                        {task.source && (
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-medium bg-gray-800/40 text-gray-500 border border-gray-800/30">
+                            {task.source}
+                          </span>
+                        )}
+                      </div>
+                      {task.deadline && (
+                        <span className="text-2xs text-gray-500 font-light block mt-0.5">
+                          Deadline: {new Date(task.deadline).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(task.deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <span className={`px-2.5 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider ${
+                      task.priority >= 4 ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
+                      task.priority === 3 ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                      "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                    }`}>
+                      {task.priority >= 4 ? "High" : task.priority === 3 ? "Medium" : "Low"}
+                    </span>
+                    <span className="text-xs text-gray-400 font-light">{task.estimated_duration}min</span>
+
+                    <button 
+                      onClick={() => handleDeleteTask(task.id)}
+                      className="p-1.5 hover:bg-gray-800/60 text-gray-500 hover:text-red-400 rounded-lg transition-colors">
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
+              
+              {filteredTasks.length === 0 && (
+                <div className="text-center py-12 border border-dashed border-gray-900 rounded-2xl text-gray-500">
+                  No matching tasks found.
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 3: EXTRACT TASKS VIEW */}
+        {view === "extract" && (
+          <div className="space-y-8 animate-fade-in text-left">
+            <div>
+              <h1 className="text-3xl font-extrabold text-white">Extract Tasks</h1>
+              <span className="text-sm text-gray-500">Let AI automatically detect tasks, deadlines, and priorities</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              
+              <div 
+                onClick={() => setShowVoiceModal(true)}
+                className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl hover:border-indigo-600/30 cursor-pointer transition-all duration-300 flex flex-col justify-between h-44 shadow-xl">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center text-lg">🎤</div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Voice Input</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-1">Speak naturally to create tasks instantly</p>
+                </div>
+              </div>
+
+              <div 
+                onClick={() => setShowPdfModal(true)}
+                className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl hover:border-indigo-600/30 cursor-pointer transition-all duration-300 flex flex-col justify-between h-44 shadow-xl">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">📄</div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">PDF Upload</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-1">Extract tasks from syllabus documents</p>
+                </div>
+              </div>
+
+              <div 
+                onClick={() => setShowEmailModal(true)}
+                className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl hover:border-indigo-600/30 cursor-pointer transition-all duration-300 flex flex-col justify-between h-44 shadow-xl">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center text-lg">✉️</div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Email Paste</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-1">Extract tasks from class email sync</p>
+                </div>
+              </div>
+
+              <div 
+                onClick={() => setShowNotesModal(true)}
+                className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl hover:border-indigo-600/30 cursor-pointer transition-all duration-300 flex flex-col justify-between h-44 shadow-xl">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center text-lg">✍️</div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Notes</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-1">Type or paste project guidelines notes</p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: SCHEDULE TIMELINE VIEW */}
+        {view === "schedule" && (
+          <div className="space-y-8 animate-fade-in text-left">
+            
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-extrabold text-white">Smart Schedule</h1>
+                <span className="text-sm text-gray-500">AI-generated daily plan optimized for your productivity</span>
+              </div>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={handleGenerateSchedule}
+                  disabled={isProcessing}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all">
+                  Optimize Schedule
+                </button>
+                <button 
+                  onClick={handleReschedule}
+                  disabled={isProcessing}
+                  className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 rounded-xl text-sm font-semibold border border-gray-700 transition-all flex items-center gap-2">
+                  {isProcessing && <span className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></span>}
+                  Reschedule
+                </button>
+              </div>
+            </div>
+
+            {/* Timeline Blocks */}
+            {scheduleBlocks.length === 0 ? (
+              <div className="text-center py-20 border border-dashed border-gray-900 rounded-3xl flex flex-col items-center justify-center gap-4 bg-[#0b0e14]/20">
+                <span className="text-4xl">📅</span>
+                <h3 className="font-bold text-gray-300">No schedule for this day</h3>
+                <p className="text-xs text-gray-500 max-w-sm">You have pending tasks waiting. Let AI generate an optimized daily plan.</p>
+                <button 
+                  onClick={handleGenerateSchedule}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm rounded-xl transition-all shadow-lg shadow-indigo-500/20">
+                  Generate Schedule
+                </button>
+              </div>
+            ) : (
+              <div className="relative pl-6 border-l-2 border-indigo-900/50 space-y-6 max-w-2xl mx-auto w-full">
+                {scheduleBlocks.map((block) => (
+                  <div key={block.id} className="relative group">
+                    {/* Circle time dot */}
+                    <div className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-2 transition-all ${
+                      block.task_id 
+                        ? block.task?.completed 
+                          ? "bg-emerald-500 border-emerald-600" 
+                          : "bg-indigo-600 border-indigo-700" 
+                        : "bg-gray-800 border-gray-700"
+                    }`}></div>
+
+                    <div className={`p-4 rounded-2xl border transition-all duration-300 ${
+                      block.task_id 
+                        ? block.task?.completed 
+                          ? "bg-gray-950/20 border-gray-900/60 opacity-60" 
+                          : "bg-[#0b0e14]/60 border-[#161a23] hover:border-indigo-800/30" 
+                        : "bg-gray-950/40 border-dashed border-gray-850 text-gray-400 font-light"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {block.task_id && (
+                            <button 
+                              onClick={() => toggleTask(block.task_id!, block.task?.completed || false)}
+                              className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
+                                block.task?.completed ? "bg-emerald-600 border-emerald-500 text-white" : "border-gray-700 hover:border-gray-500"
+                              }`}>
+                              {block.task?.completed && <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                            </button>
+                          )}
+                          <div>
+                            <span className={`block font-medium ${block.task?.completed ? "line-through text-gray-500" : "text-gray-100"}`}>
+                              {block.label}
+                            </span>
+                            <span className="text-xs text-gray-500 font-light">
+                              {formatTime(block.start_time)} - {formatTime(block.end_time)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {block.task_id ? (
+                            <span className="px-2.5 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                              Priority {block.task?.priority}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-lg text-xxs font-medium tracking-wide bg-gray-850/40 text-gray-500 border border-gray-850/30">
+                              Buffer
+                            </span>
+                          )}
+                          
+                          {block.task_id && (
+                            <button 
+                              onClick={() => handleDeleteTask(block.task_id!)}
+                              className="p-1 hover:bg-gray-800 rounded-lg text-gray-500 hover:text-red-400 transition-all">
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* AI Creation Container */}
-            <div className="w-full max-w-2xl bg-gray-900/60 border border-gray-800 rounded-3xl p-6 mb-8 shadow-2xl backdrop-blur-md text-left">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-semibold text-gray-200 flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="indigo" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                  AI NLP Task Creator
-                </h3>
-                <button 
-                  onClick={() => setShowManualForm(!showManualForm)}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-                  {showManualForm ? "Use AI NLP Input" : "Add Task Manually"}
-                </button>
-              </div>
-              
-              {!showManualForm ? (
-                <form onSubmit={handleNLSubmit} className="flex gap-2 mb-4">
-                  <input 
-                    type="text" 
-                    value={naturalLanguageInput}
-                    onChange={(e) => setNaturalLanguageInput(e.target.value)}
-                    placeholder="e.g. 'I have an AI assignment due next Friday at 6pm'" 
-                    disabled={isProcessingInput}
-                    className="flex-1 bg-gray-950 border border-gray-800 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 text-gray-200"
-                  />
-                  <button 
-                    type="submit"
-                    disabled={isProcessingInput || !naturalLanguageInput}
-                    className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:opacity-50 px-6 rounded-2xl text-sm font-semibold transition-all">
-                    {isProcessingInput ? "Processing..." : "Generate"}
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleManualSubmit} className="space-y-4 mb-4 bg-gray-950/40 p-4 border border-gray-800 rounded-2xl">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Task Title</label>
-                      <input 
-                        type="text" 
-                        value={manualTitle}
-                        onChange={(e) => setManualTitle(e.target.value)}
-                        placeholder="e.g. Write literature review" 
-                        required
-                        className="w-full bg-gray-950 border border-gray-850 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Deadline Date & Time</label>
-                      <input 
-                        type="datetime-local" 
-                        value={manualDeadline}
-                        onChange={(e) => setManualDeadline(e.target.value)}
-                        className="w-full bg-gray-950 border border-gray-850 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Priority (1 - 5)</label>
-                      <select 
-                        value={manualPriority}
-                        onChange={(e) => setManualPriority(Number(e.target.value))}
-                        className="w-full bg-gray-950 border border-gray-850 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200">
-                        <option value={1}>1 (Lowest)</option>
-                        <option value={2}>2</option>
-                        <option value={3}>3 (Normal)</option>
-                        <option value={4}>4</option>
-                        <option value={5}>5 (Critical)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Est. Duration (minutes)</label>
-                      <input 
-                        type="number" 
-                        value={manualDuration}
-                        onChange={(e) => setManualDuration(Number(e.target.value))}
-                        placeholder="45"
-                        min={5}
-                        required
-                        className="w-full bg-gray-950 border border-gray-850 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <button 
-                      type="button" 
-                      onClick={() => setShowManualForm(false)}
-                      className="px-4 py-2 border border-gray-800 rounded-xl text-xs font-semibold text-gray-400 hover:text-gray-200">
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-semibold">
-                      Add Task
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-gray-800/80">
-                <div className="flex flex-wrap gap-2">
-                  {/* PDF Upload */}
-                  <input 
-                    type="file" 
-                    accept=".pdf,text/plain" 
-                    onChange={handleFileUpload} 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                  />
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="px-4 py-2.5 bg-gray-800/60 hover:bg-gray-700/60 border border-gray-800 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                    {isUploading ? "Reading PDF..." : "Upload Syllabus / PDF"}
-                  </button>
-
-                  {/* Sync Emails */}
-                  <button 
-                    onClick={handleSyncEmails}
-                    disabled={isSyncingEmails}
-                    className="px-4 py-2.5 bg-gray-800/60 hover:bg-gray-700/60 border border-gray-800 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                    {isSyncingEmails ? "Syncing..." : "Sync Emails"}
-                  </button>
-                </div>
-
-                {/* Voice Note Creation */}
-                <div>
-                  {isRecording ? (
-                    <button 
-                      onClick={stopRecording}
-                      className="px-4 py-2.5 bg-red-600 hover:bg-red-500 border border-red-500 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all animate-pulse">
-                      <span className="w-2.5 h-2.5 bg-white rounded-full"></span>
-                      Stop Recording ({recordingSeconds}s)
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={startRecording}
-                      className="px-4 py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
-                      Speak Task
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Goal Progress Tracker */}
-            {totalTasksCount > 0 && (
-              <div className="w-full max-w-2xl bg-gray-900/40 border border-gray-900 rounded-3xl p-6 mb-8 shadow-xl text-left">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-semibold text-gray-300">Goal Completion Progress</span>
-                  <span className="text-sm font-bold text-indigo-400">{taskProgressPercentage}% ({completedTasksCount}/{totalTasksCount} tasks)</span>
-                </div>
-                <div className="w-full bg-gray-950 h-3.5 rounded-full overflow-hidden border border-gray-800">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 h-full transition-all duration-500" 
-                    style={{ width: `${taskProgressPercentage}%` }}>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Recent Tasks Quick-View */}
-            {totalTasksCount > 0 && (
-              <div className="w-full max-w-2xl bg-gray-900/45 border border-gray-900 rounded-3xl p-6 mb-8 shadow-xl text-left">
-                <h3 className="font-semibold text-sm text-gray-300 mb-4 flex items-center justify-between">
-                  <span>Recent Tasks</span>
-                  <button 
-                    onClick={() => setView("schedule")}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-                    View Full Schedule →
-                  </button>
-                </h3>
-                <div className="space-y-3">
-                  {tasks.slice(-5).reverse().map(task => (
-                    <div key={task.id} className={`p-3.5 border rounded-2xl flex items-center justify-between transition-all duration-300 ${
-                      task.completed 
-                        ? "bg-gray-950/25 border-gray-900/60 opacity-60" 
-                        : "bg-gray-950/40 border-gray-900/50 hover:border-gray-800"
-                    }`}>
-                      <div className="flex items-center gap-3">
-                        <button 
-                          onClick={() => toggleTask(task.id, task.completed)}
-                          className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                            task.completed ? "bg-emerald-600 border-emerald-500 text-white" : "border-gray-750 hover:border-gray-500"
-                          }`}>
-                          {task.completed && <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                        </button>
-                        <div>
-                          <span className={`block font-medium text-sm ${task.completed ? "line-through text-gray-500" : "text-gray-200"}`}>{task.title}</span>
-                          {task.deadline && (
-                            <span className="text-2xs text-gray-500 font-light">
-                              Due: {new Date(task.deadline).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(task.deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {task.completed ? (
-                          <span className="px-2 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Completed
-                          </span>
-                        ) : (
-                          <>
-                            <span className="px-2 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                              {task.estimated_duration}m
-                            </span>
-                            <span className="px-2 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider bg-red-500/10 text-red-400 border border-red-500/20">
-                              P{task.priority}
-                            </span>
-                          </>
-                        )}
-                        <button 
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="p-1 hover:bg-gray-800 rounded-lg text-gray-500 hover:text-red-400 transition-all"
-                          title="Delete task">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {tasks.length === 0 && (
-                    <p className="text-gray-500 text-xs font-light text-center py-4">No tasks found. Use the AI panel to create one.</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-4">
-              <button onClick={() => setView("focus")} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-semibold transition-all">Start Session</button>
-              <button onClick={() => setView("schedule")} className="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-semibold transition-all border border-gray-800">View Schedule</button>
-            </div>
           </div>
         )}
 
-        {/* VIEW 2: FOCUS MODE & ANALYTICS */}
+        {/* TAB 5: FOCUS MODE VIEW */}
         {view === "focus" && (
-          <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in text-left">
             
-            {/* Left: Pomodoro Timer */}
-            <div className="flex flex-col items-center bg-gray-900/40 border border-gray-900 rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
+            {/* Left: Pomodoro Clock */}
+            <div className="flex flex-col items-center bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
               <h2 className="text-2xl font-bold mb-2">Focus Mode</h2>
-              <p className="text-gray-400 text-sm mb-6">{isBreak ? "Rest Period" : "Deep Work Session"}</p>
+              <p className="text-gray-400 text-sm mb-6">{pomoIsBreak ? "Rest Period" : "Deep Work Session"}</p>
 
               <div className="relative w-64 h-64 flex items-center justify-center rounded-full border-4 border-indigo-900 bg-gray-950/40 backdrop-blur-sm mb-6 shadow-xl">
                 <div className="text-center">
                   <div className="text-5xl font-mono font-bold tracking-tight">
-                    {timerMinutes.toString().padStart(2, '0')}:{timerSeconds.toString().padStart(2, '0')}
+                    {pomoMinutes.toString().padStart(2, '0')}:{pomoSeconds.toString().padStart(2, '0')}
                   </div>
                   <span className="text-xs uppercase tracking-widest text-indigo-400 font-semibold mt-2 block">
-                    {isBreak ? "Break" : "Active Focus"}
+                    {pomoIsBreak ? "Break" : "Active Focus"}
                   </span>
                 </div>
               </div>
 
               <div className="flex gap-3 w-full mb-6">
                 <button 
-                  onClick={toggleTimer}
-                  className={`flex-1 py-3.5 rounded-xl font-semibold transition-all duration-300 transform hover:scale-102 ${isActive ? "bg-amber-600 hover:bg-amber-500" : "bg-indigo-600 hover:bg-indigo-500"}`}>
-                  {isActive ? "Pause" : "Start Session"}
+                  onClick={() => setPomoActive(!pomoActive)}
+                  className={`flex-1 py-3.5 rounded-xl font-semibold transition-all duration-300 transform hover:scale-102 ${pomoActive ? "bg-amber-600 hover:bg-amber-500" : "bg-indigo-600 hover:bg-indigo-500"}`}>
+                  {pomoActive ? "Pause" : "Start Session"}
                 </button>
                 <button 
-                  onClick={resetTimer}
+                  onClick={() => {
+                    setPomoActive(false);
+                    setPomoIsBreak(false);
+                    setPomoMinutes(25);
+                    setPomoSeconds(0);
+                  }}
                   className="px-5 py-3.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl font-medium transition-all">
                   Reset
                 </button>
-              </div>
-
-              {/* Micro Session Stats */}
-              <div className="grid grid-cols-3 gap-4 w-full text-center">
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl">
-                  <span className="block text-xl font-bold text-indigo-400">92</span>
-                  <span className="text-xxs text-gray-500 uppercase tracking-wider">Focus</span>
-                </div>
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl">
-                  <span className="block text-xl font-bold text-indigo-400">5d</span>
-                  <span className="text-xxs text-gray-500 uppercase tracking-wider">Streak</span>
-                </div>
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl">
-                  <span className="block text-xl font-bold text-indigo-400">180m</span>
-                  <span className="text-xxs text-gray-500 uppercase tracking-wider">Time</span>
-                </div>
               </div>
             </div>
 
@@ -842,7 +1074,7 @@ export default function Home() {
             <div className="flex flex-col gap-6 w-full">
               
               {/* Privacy Setting Card */}
-              <div className="bg-gray-900/40 border border-gray-900 rounded-3xl p-6 backdrop-blur-xl shadow-2xl">
+              <div className="bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 backdrop-blur-xl shadow-2xl">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="font-bold text-lg">Privacy & Monitoring</h3>
@@ -867,62 +1099,8 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Productivity SVG Trend Chart */}
-              {trackingEnabled && (
-                <div className="bg-gray-900/40 border border-gray-900 rounded-3xl p-6 backdrop-blur-xl shadow-2xl text-left">
-                  <h3 className="font-bold text-sm text-gray-300 mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="indigo" strokeWidth="2.5"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                    Focus Score Trend (Last 6 Hours)
-                  </h3>
-                  
-                  {/* Custom Responsive SVG Chart */}
-                  <div className="w-full h-36">
-                    <svg viewBox="0 0 500 150" className="w-full h-full">
-                      <defs>
-                        <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4"/>
-                          <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0"/>
-                        </linearGradient>
-                      </defs>
-                      
-                      {/* Grid Lines */}
-                      <line x1="0" y1="37.5" x2="500" y2="37.5" stroke="#1f2937" strokeWidth="1" strokeDasharray="5,5" />
-                      <line x1="0" y1="75" x2="500" y2="75" stroke="#1f2937" strokeWidth="1" strokeDasharray="5,5" />
-                      <line x1="0" y1="112.5" x2="500" y2="112.5" stroke="#1f2937" strokeWidth="1" strokeDasharray="5,5" />
-
-                      {/* Area Fill */}
-                      <path 
-                        d="M 20 150 L 20 90 Q 100 50 180 30 T 340 120 T 480 35 L 480 150 Z" 
-                        fill="url(#chart-grad)" 
-                      />
-                      
-                      {/* Line Stroke */}
-                      <path 
-                        d="M 20 90 Q 100 50 180 30 T 340 120 T 480 35" 
-                        fill="none" 
-                        stroke="#6366f1" 
-                        strokeWidth="3.5" 
-                        strokeLinecap="round"
-                      />
-
-                      {/* Nodes */}
-                      <circle cx="20" cy="90" r="4.5" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx="180" cy="30" r="4.5" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx="340" cy="120" r="4.5" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx="480" cy="35" r="4.5" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
-
-                      {/* Labels */}
-                      <text x="20" y="145" fill="#6b7280" fontSize="10" textAnchor="middle">10:00</text>
-                      <text x="180" y="145" fill="#6b7280" fontSize="10" textAnchor="middle">12:00</text>
-                      <text x="340" y="145" fill="#6b7280" fontSize="10" textAnchor="middle">14:00</text>
-                      <text x="480" y="145" fill="#6b7280" fontSize="10" textAnchor="middle">16:00</text>
-                    </svg>
-                  </div>
-                </div>
-              )}
-
               {/* Activity Summary Stats */}
-              <div className="bg-gray-900/40 border border-gray-900 rounded-3xl p-6 backdrop-blur-xl shadow-2xl grid grid-cols-2 gap-4">
+              <div className="bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 backdrop-blur-xl shadow-2xl grid grid-cols-2 gap-4">
                 
                 <div className="col-span-2 p-4 bg-gray-950/40 border border-gray-900 rounded-2xl">
                   <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Active Project Workspace</span>
@@ -938,7 +1116,6 @@ export default function Home() {
                       {trackingEnabled ? activitySummary.focus_score : "—"}
                     </span>
                   </div>
-                  <span className="text-2xs text-gray-500 block mt-2">Ratio of focus vs. distractions</span>
                 </div>
 
                 <div className="p-4 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col justify-between">
@@ -955,7 +1132,6 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  <span className="text-2xs text-gray-500 block mt-1">Updates live every 5s</span>
                 </div>
 
               </div>
@@ -965,112 +1141,348 @@ export default function Home() {
           </div>
         )}
 
-        {/* VIEW 3: SCHEDULE */}
-        {view === "schedule" && (
-          <div className="w-full max-w-2xl bg-gray-900/40 border border-gray-900 rounded-3xl p-6 backdrop-blur-xl shadow-2xl animate-fade-in">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-2xl font-bold">Daily Timeline</h2>
-                <p className="text-gray-400 text-sm">AI optimized schedule via Google OR-Tools</p>
-              </div>
+        {/* TAB 6: EXPANDED INSIGHTS VIEW */}
+        {view === "insights" && (
+          <div className="space-y-8 animate-fade-in text-left">
+            <div>
+              <h1 className="text-3xl font-extrabold text-white">Insights & Analytics</h1>
+              <span className="text-sm text-gray-500">AI-generated productivity warnings and behavior reports</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {insights.map((insight, idx) => (
+                <div 
+                  key={idx} 
+                  className={`p-6 rounded-3xl border flex items-start gap-4 shadow-xl ${
+                    insight.severity === "critical" ? "bg-red-500/5 border-red-500/10 text-red-300" :
+                    insight.severity === "warning" ? "bg-amber-500/5 border-amber-500/10 text-amber-300" :
+                    insight.severity === "success" ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-300" :
+                    "bg-indigo-500/5 border-indigo-500/10 text-indigo-300"
+                  }`}>
+                  <span className="text-2xl mt-0.5">💡</span>
+                  <div>
+                    <h3 className="font-bold text-sm uppercase tracking-wider mb-2">
+                      {insight.severity === "critical" ? "Critical Risk Alert" :
+                       insight.severity === "warning" ? "Productivity Warning" :
+                       insight.severity === "success" ? "Peak Productivity Period" : "Status Tracker Update"}
+                    </h3>
+                    <p className="text-xs font-light opacity-90 leading-relaxed">{insight.message}</p>
+                  </div>
+                </div>
+              ))}
               
-              <div className="flex gap-2">
+              {insights.length === 0 && (
+                <div className="col-span-2 text-center py-20 border border-dashed border-gray-900 rounded-3xl text-gray-500">
+                  AI is gathering active tracking metrics to generate customized behavioral reports.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: SETTINGS VIEW */}
+        {view === "settings" && (
+          <div className="space-y-8 animate-fade-in text-left">
+            <div>
+              <h1 className="text-3xl font-extrabold text-white">Settings</h1>
+              <span className="text-sm text-gray-500">Manage work boundaries, schedules, and notifications</span>
+            </div>
+
+            <div className="max-w-2xl bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 space-y-6 shadow-xl">
+              <div>
+                <h3 className="font-bold text-sm text-gray-200 mb-1">Workday Boundaries</h3>
+                <p className="text-xxs text-gray-500 font-light mb-4">Schedules will only plan tasks within these defined hours</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Start Hour</label>
+                    <input type="text" value="09:00 AM" disabled className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">End Hour</label>
+                    <input type="text" value="09:00 PM" disabled className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[#161a23]">
+                <h3 className="font-bold text-sm text-gray-200 mb-1">Database Actions</h3>
+                <p className="text-xxs text-gray-500 font-light mb-4">Reset tables to run fresh demonstration tests</p>
+                
                 <button 
-                  onClick={handleGenerateSchedule}
-                  disabled={isRescheduling}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-all">
-                  Optimize
-                </button>
-                <button 
-                  onClick={handleReschedule}
-                  disabled={isRescheduling}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 rounded-xl text-sm font-medium border border-gray-700 transition-all flex items-center gap-2">
-                  {isRescheduling && <span className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></span>}
-                  Reschedule
+                  onClick={async () => {
+                    if (confirm("Reset database with fresh tasks and activity logs?")) {
+                      setIsProcessing(true);
+                      try {
+                        const res = await fetch(`http://localhost:8000/api/health`); // quick check
+                        if (res.ok) {
+                          alert("Seeder script runs inside the terminal backend folder. Run 'python seed.py' to reset DB.");
+                        }
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-xl text-xs font-semibold transition-colors">
+                  Clean Database & Pre-seed Mock Data
                 </button>
               </div>
             </div>
 
-            {/* Timeline Schedule Blocks */}
-            {scheduleBlocks.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-gray-800 rounded-2xl text-gray-500 flex flex-col items-center justify-center gap-4">
-                <span>No schedule computed. If you have tasks, let the solver organize your work!</span>
-                <button 
-                  onClick={handleGenerateSchedule}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm rounded-xl shadow-lg transition-all">
-                  Run OR-Tools Solver
-                </button>
-              </div>
-            ) : (
-              <div className="relative pl-6 border-l-2 border-indigo-900/50 space-y-6">
-                {scheduleBlocks.map((block) => (
-                  <div key={block.id} className="relative group">
-                    {/* Time Dot Indicator */}
-                    <div className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-2 transition-all ${
-                      block.task_id 
-                        ? block.task?.completed 
-                          ? "bg-emerald-500 border-emerald-600" 
-                          : "bg-indigo-600 border-indigo-700" 
-                        : "bg-gray-800 border-gray-700"
-                    }`}></div>
-
-                    <div className={`p-4 rounded-2xl border transition-all duration-300 ${
-                      block.task_id 
-                        ? block.task?.completed 
-                          ? "bg-gray-950/20 border-gray-900/60 opacity-60" 
-                          : "bg-gray-900/60 border-gray-800/80 hover:border-indigo-800/50" 
-                        : "bg-gray-950/40 border-dashed border-gray-850 text-gray-400 font-light"
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {block.task_id && (
-                            <button 
-                              onClick={() => toggleTask(block.task_id!, block.task?.completed || false)}
-                              className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                                block.task?.completed ? "bg-emerald-600 border-emerald-500 text-white" : "border-gray-750 hover:border-gray-500"
-                              }`}>
-                              {block.task?.completed && <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                            </button>
-                          )}
-                          <div>
-                            <span className={`block font-medium ${block.task?.completed ? "line-through text-gray-500" : "text-gray-100"}`}>
-                              {block.label}
-                            </span>
-                            <span className="text-xs text-gray-500 font-light">
-                              {formatTime(block.start_time)} - {formatTime(block.end_time)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {block.task_id ? (
-                            <span className="px-2 py-0.5 rounded-lg text-xxs font-semibold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                              Priority {block.task?.priority}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-lg text-xxs font-medium tracking-wide bg-gray-800/40 text-gray-500 border border-gray-800/30">
-                              Buffer
-                            </span>
-                          )}
-                          {block.task_id && (
-                            <button 
-                              onClick={() => handleDeleteTask(block.task_id!)}
-                              className="p-1 hover:bg-gray-800 rounded-lg text-gray-500 hover:text-red-400 transition-all"
-                              title="Delete task">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
       </main>
+
+      {/* POPUP MODALS FOR ADDING / EXTRACTING TASKS */}
+      
+      {/* 1. Add Task Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0e14] border border-[#161a23] w-full max-w-lg rounded-3xl p-6 shadow-2xl relative text-left">
+            <h2 className="text-xl font-bold text-white mb-4">Add Task</h2>
+            <form onSubmit={handleManualSubmit} className="space-y-4">
+              <div>
+                <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Task Title</label>
+                <input 
+                  type="text" 
+                  value={taskTitle}
+                  onChange={(e) => setTaskTitle(e.target.value)}
+                  placeholder="e.g. Write literature review" 
+                  required
+                  className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Deadline Date/Time</label>
+                  <input 
+                    type="datetime-local" 
+                    value={taskDeadline}
+                    onChange={(e) => setTaskDeadline(e.target.value)}
+                    className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
+                  />
+                </div>
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Category</label>
+                  <select 
+                    value={taskCategory}
+                    onChange={(e) => setTaskCategory(e.target.value)}
+                    className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none text-gray-200">
+                    <option value="coding">coding</option>
+                    <option value="study">study</option>
+                    <option value="meeting">meeting</option>
+                    <option value="research">research</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Priority (1 - 5)</label>
+                  <select 
+                    value={taskPriority}
+                    onChange={(e) => setTaskPriority(Number(e.target.value))}
+                    className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none text-gray-200">
+                    <option value={1}>1 (Lowest)</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3 (Normal)</option>
+                    <option value={4}>4</option>
+                    <option value={5}>5 (Critical)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Est. Duration (minutes)</label>
+                  <input 
+                    type="number" 
+                    value={taskDuration}
+                    onChange={(e) => setTaskDuration(Number(e.target.value))}
+                    placeholder="45"
+                    min={5}
+                    required
+                    className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 border border-gray-800 rounded-xl text-xs font-semibold text-gray-400 hover:text-gray-200">
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isProcessing}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-xs font-semibold">
+                  Add Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Voice Input Modal */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0e14] border border-[#161a23] w-full max-w-sm rounded-3xl p-6 shadow-2xl relative text-center">
+            <h2 className="text-lg font-bold text-white mb-4">Voice Task Input</h2>
+            <p className="text-xxs text-gray-500 mb-6">Describe your task and deadline naturally in a voice clip</p>
+            
+            <div className="flex justify-center mb-6">
+              {isRecording ? (
+                <button 
+                  onClick={stopRecording}
+                  className="w-20 h-20 rounded-full bg-red-600 hover:bg-red-500 border border-red-500 flex items-center justify-center text-2xl transition-all animate-pulse">
+                  🛑
+                </button>
+              ) : (
+                <button 
+                  onClick={startRecording}
+                  className="w-20 h-20 rounded-full bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-400 flex items-center justify-center text-2xl transition-all">
+                  🎤
+                </button>
+              )}
+            </div>
+
+            {isRecording && (
+              <span className="text-xs text-rose-400 font-semibold block mb-4">Recording: {recordingSeconds}s</span>
+            )}
+
+            {isProcessing && (
+              <span className="text-xs text-indigo-400 font-medium block mb-4">Processing audio transcript...</span>
+            )}
+
+            {micError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/25 text-red-300 text-xxs rounded-xl leading-relaxed">
+                ⚠️ {micError}
+              </div>
+            )}
+
+            <button 
+              type="button" 
+              onClick={() => {
+                stopRecording();
+                setMicError(null);
+                setShowVoiceModal(false);
+              }}
+              className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl text-xs font-semibold">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. PDF Syllabus Upload Modal */}
+      {showPdfModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0e14] border border-[#161a23] w-full max-w-md rounded-3xl p-6 shadow-2xl relative text-center">
+            <h2 className="text-lg font-bold text-white mb-4">PDF Syllabus Upload</h2>
+            <p className="text-xxs text-gray-500 mb-6">Upload a syllabus or assignment file to extract tasks</p>
+            
+            <input 
+              type="file" 
+              accept=".pdf,text/plain" 
+              onChange={handleFileUpload} 
+              ref={fileInputRef} 
+              className="hidden" 
+            />
+            
+            <div className="py-8 border-2 border-dashed border-[#161a23] rounded-2xl mb-6 flex flex-col items-center justify-center gap-3">
+              <span className="text-3xl">📄</span>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold rounded-xl">
+                Choose Document File
+              </button>
+              <span className="text-[10px] text-gray-500 font-light">Supports PDF and TXT files</span>
+            </div>
+
+            {isUploading && (
+              <span className="text-xs text-indigo-400 font-medium block mb-4">Parsing PDF text guidelines...</span>
+            )}
+
+            <button 
+              type="button" 
+              onClick={() => setShowPdfModal(false)}
+              className="w-full py-2.5 bg-gray-850 hover:bg-gray-750 border border-gray-800 rounded-xl text-xs font-semibold">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Email Paste / Sync Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0e14] border border-[#161a23] w-full max-w-md rounded-3xl p-6 shadow-2xl relative text-left">
+            <h2 className="text-lg font-bold text-white mb-2">Sync Academic Emails</h2>
+            <p className="text-xxs text-gray-500 mb-6">Fetch unread assignment announcements and deadlines from your inbox</p>
+            
+            <div className="space-y-4">
+              <button 
+                onClick={handleSyncEmails}
+                disabled={isProcessing}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2">
+                <span>🔄</span>
+                {isProcessing ? "Connecting to Inbox..." : "Sync from Inbox Simulator"}
+              </button>
+
+              <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl">
+                <span className="text-[10px] text-gray-500 font-bold block mb-1">Simulated Emails to Fetch:</span>
+                <span className="text-[9px] text-gray-400 font-light block leading-normal">• Reminder: Literature Review Submission Guidelines (Due next Thursday)</span>
+                <span className="text-[9px] text-gray-400 font-light block leading-normal">• Meeting scheduled with Guide: discuss OR-Tools (Friday 2 PM)</span>
+              </div>
+            </div>
+
+            <button 
+              type="button" 
+              onClick={() => setShowEmailModal(false)}
+              className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl text-xs font-semibold mt-6">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Notes Modal */}
+      {showNotesModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b0e14] border border-[#161a23] w-full max-w-lg rounded-3xl p-6 shadow-2xl relative text-left">
+            <h2 className="text-lg font-bold text-white mb-2">Paste Guidelines Notes</h2>
+            <p className="text-xxs text-gray-500 mb-4">Paste guidelines notes below. AI will isolate milestones.</p>
+            
+            <textarea 
+              value={textNotes}
+              onChange={(e) => setTextNotes(e.target.value)}
+              placeholder="e.g. Need to complete AI model training by next Tuesday. P5. Estimated duration is 180 mins." 
+              rows={6}
+              className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-gray-200 resize-none mb-4"
+            />
+
+            <div className="flex gap-3 justify-end">
+              <button 
+                type="button" 
+                onClick={() => setShowNotesModal(false)}
+                className="px-4 py-2 border border-gray-850 rounded-xl text-xs font-semibold text-gray-400 hover:text-gray-200">
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                onClick={() => handleTextExtraction(textNotes)}
+                disabled={isProcessing || !textNotes.trim()}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-xs font-semibold">
+                Extract Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
