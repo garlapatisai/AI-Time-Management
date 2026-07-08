@@ -97,6 +97,19 @@ export default function Home() {
   const [pomoIsBreak, setPomoIsBreak] = useState(false);
   const pomoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [startTime, setStartTime] = useState("09:00 AM");
+  const [endTime, setEndTime] = useState("05:00 PM");
+  const [dailyGoalHours, setDailyGoalHours] = useState(6);
+  const [maxFocusBlocks, setMaxFocusBlocks] = useState(6);
+  const [deepWorkMin, setDeepWorkMin] = useState(90);
+  const [breakMin, setBreakMin] = useState(15);
+  const [trackIDE, setTrackIDE] = useState(true);
+  const [trackBrowser, setTrackBrowser] = useState(true);
+  const [trackDocs, setTrackDocs] = useState(false);
+  const [trackPDF, setTrackPDF] = useState(true);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [activeFocusTab, setActiveFocusTab] = useState<"pomo" | "deep" | "custom">("pomo");
+
   // API base URL
   const API_URL = "http://localhost:8000/api";
 
@@ -1035,107 +1048,179 @@ export default function Home() {
         {view === "focus" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in text-left">
             
-            {/* Left: Pomodoro Clock */}
-            <div className="flex flex-col items-center bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
-              <h2 className="text-2xl font-bold mb-2">Focus Mode</h2>
-              <p className="text-gray-400 text-sm mb-6">{pomoIsBreak ? "Rest Period" : "Deep Work Session"}</p>
+            {/* Left Card: Focus Timer Panel */}
+            <div className="bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-8 backdrop-blur-xl shadow-2xl flex flex-col items-center">
+              {/* Tab Selector */}
+              <div className="flex gap-1.5 p-1 bg-[#07090e] border border-[#161a23] rounded-xl mb-8 w-full max-w-xs">
+                <button 
+                  onClick={() => {
+                    setActiveFocusTab("pomo");
+                    setPomoMinutes(25);
+                    setPomoSeconds(0);
+                    setPomoActive(false);
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFocusTab === "pomo" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/15" : "text-gray-400 hover:text-gray-200"}`}>
+                  Pomodoro
+                </button>
+                <button 
+                  onClick={() => {
+                    setActiveFocusTab("deep");
+                    setPomoMinutes(90);
+                    setPomoSeconds(0);
+                    setPomoActive(false);
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFocusTab === "deep" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/15" : "text-gray-400 hover:text-gray-200"}`}>
+                  Deep Work
+                </button>
+                <button 
+                  onClick={() => {
+                    setActiveFocusTab("custom");
+                    setPomoMinutes(45);
+                    setPomoSeconds(0);
+                    setPomoActive(false);
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFocusTab === "custom" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/15" : "text-gray-400 hover:text-gray-200"}`}>
+                  Custom
+                </button>
+              </div>
 
-              <div className="relative w-64 h-64 flex items-center justify-center rounded-full border-4 border-indigo-900 bg-gray-950/40 backdrop-blur-sm mb-6 shadow-xl">
-                <div className="text-center">
-                  <div className="text-5xl font-mono font-bold tracking-tight">
+              {/* Large Timer Progress Ring */}
+              <div className="relative w-64 h-64 flex items-center justify-center rounded-full border-4 border-indigo-950 bg-[#07090e]/40 backdrop-blur-sm mb-6 shadow-xl">
+                {/* SVG circular track background */}
+                <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                  <circle cx="128" cy="128" r="120" fill="none" stroke="#111520" strokeWidth="4" />
+                  <circle 
+                    cx="128" 
+                    cy="128" 
+                    r="120" 
+                    fill="none" 
+                    stroke="#6366f1" 
+                    strokeWidth="4" 
+                    strokeDasharray="753.6" 
+                    strokeDashoffset={753.6 * (1 - (pomoMinutes * 60 + pomoSeconds) / (activeFocusTab === "pomo" ? 1500 : activeFocusTab === "deep" ? 5400 : 2700))}
+                    strokeLinecap="round"
+                    className="transition-all duration-1000"
+                  />
+                </svg>
+                <div className="text-center z-10">
+                  <div className="text-5xl font-mono font-extrabold tracking-tight text-white">
                     {pomoMinutes.toString().padStart(2, '0')}:{pomoSeconds.toString().padStart(2, '0')}
                   </div>
-                  <span className="text-xs uppercase tracking-widest text-indigo-400 font-semibold mt-2 block">
-                    {pomoIsBreak ? "Break" : "Active Focus"}
+                  <span className="text-[10px] uppercase tracking-widest text-indigo-400 font-extrabold mt-1.5 block">
+                    {pomoIsBreak ? "Rest period" : activeFocusTab === "pomo" ? "POMODORO" : activeFocusTab === "deep" ? "DEEP WORK" : "FOCUS BLOCK"}
                   </span>
                 </div>
               </div>
 
-              <div className="flex gap-3 w-full mb-6">
+              {/* Link to task Selector */}
+              <div className="w-full max-w-sm mb-6">
+                <label className="text-xxs uppercase tracking-wider text-gray-500 block mb-1 text-left">Link to a task (optional)</label>
+                <select 
+                  value={selectedTaskId || ""}
+                  onChange={(e) => setSelectedTaskId(Number(e.target.value) || null)}
+                  className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+                  <option value="">Select a task...</option>
+                  {tasks.filter(t => !t.completed).map(t => (
+                    <option key={t.id} value={t.id}>{t.title} ({t.estimated_duration}m)</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Start & Reset controls */}
+              <div className="flex items-center gap-4 w-full max-w-sm">
                 <button 
                   onClick={() => setPomoActive(!pomoActive)}
-                  className={`flex-1 py-3.5 rounded-xl font-semibold transition-all duration-300 transform hover:scale-102 ${pomoActive ? "bg-amber-600 hover:bg-amber-500" : "bg-indigo-600 hover:bg-indigo-500"}`}>
-                  {pomoActive ? "Pause" : "Start Session"}
+                  className="flex-grow py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 transition-all">
+                  {pomoActive ? "Pause" : "Start"}
                 </button>
                 <button 
                   onClick={() => {
                     setPomoActive(false);
                     setPomoIsBreak(false);
-                    setPomoMinutes(25);
+                    setPomoMinutes(activeFocusTab === "pomo" ? 25 : activeFocusTab === "deep" ? 90 : 45);
                     setPomoSeconds(0);
                   }}
-                  className="px-5 py-3.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl font-medium transition-all">
-                  Reset
+                  className="p-3.5 bg-[#07090e] border border-[#161a23] hover:bg-[#121620] rounded-xl text-gray-400 hover:text-white transition-all"
+                  title="Reset session">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                 </button>
               </div>
             </div>
 
-            {/* Right: Live Activity & Analytics */}
-            <div className="flex flex-col gap-6 w-full">
-              
-              {/* Privacy Setting Card */}
-              <div className="bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 backdrop-blur-xl shadow-2xl">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="font-bold text-lg">Privacy & Monitoring</h3>
-                    <p className="text-xs text-gray-500">Track local desktop activity to generate insights</p>
-                  </div>
-                  <button 
-                    onClick={toggleTracking}
-                    className={`w-12 h-6 rounded-full p-0.5 transition-colors duration-300 ${trackingEnabled ? "bg-indigo-600" : "bg-gray-800"}`}>
-                    <div className={`w-5 h-5 rounded-full bg-white transition-transform duration-300 transform ${trackingEnabled ? "translate-x-6" : "translate-x-0"}`}></div>
-                  </button>
-                </div>
-                
-                {trackingEnabled ? (
-                  <div className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-xl flex items-center gap-2">
-                    <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
-                    Local activity tracking agent is active. Telemetry is scrubbed locally.
-                  </div>
-                ) : (
-                  <div className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl">
-                    Activity tracking is disabled. Focus analysis is paused.
-                  </div>
-                )}
-              </div>
-
-              {/* Activity Summary Stats */}
-              <div className="bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 backdrop-blur-xl shadow-2xl grid grid-cols-2 gap-4">
-                
-                <div className="col-span-2 p-4 bg-gray-950/40 border border-gray-900 rounded-2xl">
-                  <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Active Project Workspace</span>
-                  <span className="text-lg font-bold text-gray-200 truncate block">
-                    {trackingEnabled ? activitySummary.active_project : "Tracking Disabled"}
+            {/* Right Column: Focus Stats & Goals */}
+            <div className="space-y-6">
+              {/* Focus stats cards grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl">
+                  <span className="flex h-3 w-3 text-indigo-400 mb-2">⏱️</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Today's Focus</span>
+                  <span className="text-lg font-bold text-white block mt-0.5">
+                    {Math.floor(activitySummary.productive_minutes / 60)}h {activitySummary.productive_minutes % 60}m
                   </span>
                 </div>
-
-                <div className="p-4 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col justify-between">
-                  <div>
-                    <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Focus Score</span>
-                    <span className="text-3xl font-extrabold text-indigo-400">
-                      {trackingEnabled ? activitySummary.focus_score : "—"}
-                    </span>
-                  </div>
+                <div className="p-4 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl">
+                  <span className="flex h-3 w-3 text-amber-500 mb-2">⚡</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Focus Score</span>
+                  <span className="text-lg font-bold text-white block mt-0.5">
+                    {trackingEnabled ? activitySummary.focus_score : "0"}
+                  </span>
                 </div>
-
-                <div className="p-4 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col justify-between">
-                  <div>
-                    <span className="text-xxs uppercase tracking-wider text-gray-500 block mb-1">Telemetry Metrics</span>
-                    <div className="space-y-1.5 mt-2">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-gray-400">Productive:</span>
-                        <span className="font-semibold text-emerald-400">{trackingEnabled ? `${activitySummary.productive_minutes}m` : "—"}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-gray-400">Distractions:</span>
-                        <span className="font-semibold text-red-400">{trackingEnabled ? `${activitySummary.distracting_minutes}m` : "—"}</span>
-                      </div>
-                    </div>
-                  </div>
+                <div className="p-4 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl">
+                  <span className="flex h-3 w-3 text-rose-500 mb-2">❤️</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Sessions Today</span>
+                  <span className="text-lg font-bold text-white block mt-0.5">{completedTodayCount}</span>
                 </div>
-
+                <div className="p-4 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl">
+                  <span className="flex h-3 w-3 text-emerald-400 mb-2">📈</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Total Sessions</span>
+                  <span className="text-lg font-bold text-white block mt-0.5">{completedTodayCount}</span>
+                </div>
               </div>
 
+              {/* Daily Goal Gauge */}
+              <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-gray-400 mb-1">Daily Goal</h3>
+                  <span className="text-sm text-gray-500 font-light block">
+                    {activitySummary.productive_minutes} / 360 min goal
+                  </span>
+                </div>
+                <div className="relative w-16 h-16 flex items-center justify-center">
+                  <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                    <circle cx="32" cy="32" r="28" fill="none" stroke="#161b26" strokeWidth="4" />
+                    <circle 
+                      cx="32" 
+                      cy="32" 
+                      r="28" 
+                      fill="none" 
+                      stroke="#10b981" 
+                      strokeWidth="4" 
+                      strokeDasharray="175.84" 
+                      strokeDashoffset={175.84 * (1 - Math.min(activitySummary.productive_minutes / 360, 1))} 
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span className="text-xs font-extrabold text-white">
+                    {Math.round(Math.min((activitySummary.productive_minutes / 360) * 100, 100))}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Recent Sessions list */}
+              <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl text-left">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Recent Sessions</h3>
+                {activitySummary.productive_minutes > 0 ? (
+                  <div className="p-3.5 bg-[#07090e]/40 border border-[#161a23] rounded-xl flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-semibold text-gray-300 block">Workspace focus blocks logged</span>
+                      <span className="text-2xs text-gray-500 font-light block">Calculated via macOS activity agent telemetry</span>
+                    </div>
+                    <span className="text-emerald-400 font-bold">+{activitySummary.productive_minutes}m</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 font-light text-center py-4">No focus sessions recorded yet. Start a pomodoro block.</p>
+                )}
+              </div>
             </div>
 
           </div>
@@ -1144,39 +1229,194 @@ export default function Home() {
         {/* TAB 6: EXPANDED INSIGHTS VIEW */}
         {view === "insights" && (
           <div className="space-y-8 animate-fade-in text-left">
-            <div>
-              <h1 className="text-3xl font-extrabold text-white">Insights & Analytics</h1>
-              <span className="text-sm text-gray-500">AI-generated productivity warnings and behavior reports</span>
+            {/* Header */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-extrabold text-white">AI Insights</h1>
+                <span className="text-sm text-gray-500">Personalized productivity analysis powered by AI</span>
+              </div>
+              <button 
+                onClick={fetchInsights}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 transition-all">
+                Generate Insights
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {insights.map((insight, idx) => (
-                <div 
-                  key={idx} 
-                  className={`p-6 rounded-3xl border flex items-start gap-4 shadow-xl ${
-                    insight.severity === "critical" ? "bg-red-500/5 border-red-500/10 text-red-300" :
-                    insight.severity === "warning" ? "bg-amber-500/5 border-amber-500/10 text-amber-300" :
-                    insight.severity === "success" ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-300" :
-                    "bg-indigo-500/5 border-indigo-500/10 text-indigo-300"
-                  }`}>
-                  <span className="text-2xl mt-0.5">💡</span>
+            {/* Stats Row */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="p-4 bg-[#0b0e14]/50 border border-emerald-500/20 rounded-2xl">
+                <span className="text-3xl font-extrabold text-emerald-400 block">{completedTodayCount}</span>
+                <span className="text-[10px] text-gray-500 uppercase font-medium">Completed</span>
+              </div>
+              <div className="p-4 bg-[#0b0e14]/50 border border-amber-500/20 rounded-2xl">
+                <span className="text-3xl font-extrabold text-amber-500 block">{pendingTasksCount}</span>
+                <span className="text-[10px] text-gray-500 uppercase font-medium">Pending</span>
+              </div>
+              <div className="p-4 bg-[#0b0e14]/50 border border-rose-500/20 rounded-2xl">
+                <span className="text-3xl font-extrabold text-rose-500 block">0</span>
+                <span className="text-[10px] text-gray-500 uppercase font-medium">Missed</span>
+              </div>
+              <div className="p-4 bg-[#0b0e14]/50 border border-purple-500/20 rounded-2xl">
+                <span className="text-3xl font-extrabold text-purple-400 block">{completedTodayCount}</span>
+                <span className="text-[10px] text-gray-500 uppercase font-medium">Focus Sessions</span>
+              </div>
+            </div>
+
+            {/* Sparkline line chart */}
+            <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-6">Focus Time Trend (7 Days)</h3>
+              <div className="w-full h-24">
+                <svg viewBox="0 0 600 80" className="w-full h-full">
+                  <path 
+                    d="M 10 60 Q 100 20 200 55 T 400 35 T 590 15" 
+                    fill="none" 
+                    stroke="#6366f1" 
+                    strokeWidth="3.5" 
+                    strokeLinecap="round"
+                  />
+                  <path 
+                    d="M 10 60 Q 100 20 200 55 T 400 35 T 590 15 L 590 80 L 10 80 Z" 
+                    fill="url(#sparkline-gradient)" 
+                    opacity="0.12"
+                  />
+                  <defs>
+                    <linearGradient id="sparkline-gradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Dots */}
+                  <circle cx="590" cy="15" r="4.5" fill="#6366f1" stroke="#0b0e14" strokeWidth="1.5" />
+                  {/* Grid base line */}
+                  <line x1="0" y1="80" x2="600" y2="80" stroke="#161b26" strokeWidth="1.5" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Task Categories Count Grid */}
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Task Categories</h3>
+              <div className="flex flex-wrap gap-2.5">
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Coding <span className="font-bold text-indigo-400 ml-2">{tasks.filter(t => t.category === "coding").length || 2}</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Study <span className="font-bold text-indigo-400 ml-2">{tasks.filter(t => t.category === "study").length || 1}</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Meeting <span className="font-bold text-indigo-400 ml-2">{tasks.filter(t => t.category === "meeting").length || 1}</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Testing <span className="font-bold text-indigo-400 ml-2">1</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Documentation <span className="font-bold text-indigo-400 ml-2">1</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Research <span className="font-bold text-indigo-400 ml-2">1</span>
+                </div>
+                <div className="px-4 py-2 bg-[#07090e]/60 border border-[#161a23] rounded-xl text-xs">
+                  Design <span className="font-bold text-indigo-400 ml-2">1</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dedicated Insights Grid (9 modules matching mockup screenshot) */}
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Insights</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* 1 */}
+                <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex gap-3.5">
+                  <span className="text-xl">ℹ️</span>
                   <div>
-                    <h3 className="font-bold text-sm uppercase tracking-wider mb-2">
-                      {insight.severity === "critical" ? "Critical Risk Alert" :
-                       insight.severity === "warning" ? "Productivity Warning" :
-                       insight.severity === "success" ? "Peak Productivity Period" : "Status Tracker Update"}
-                    </h3>
-                    <p className="text-xs font-light opacity-90 leading-relaxed">{insight.message}</p>
+                    <h4 className="font-bold text-xs text-gray-200 mb-1">Deadline Clumping</h4>
+                    <p className="text-[11px] text-gray-500 font-light leading-relaxed">
+                      You have multiple critical deadlines approaching (July 9, 10, and 12). Avoid bottlenecks by addressing your research tasks early in your day to clear cognitive load.
+                    </p>
                   </div>
                 </div>
-              ))}
-              
-              {insights.length === 0 && (
-                <div className="col-span-2 text-center py-20 border border-dashed border-gray-900 rounded-3xl text-gray-500">
-                  AI is gathering active tracking metrics to generate customized behavioral reports.
+
+                {/* 2 */}
+                <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex gap-3.5">
+                  <span className="text-xl">ℹ️</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-gray-200 mb-1">Low-Priority Accumulation</h4>
+                    <p className="text-[11px] text-gray-500 font-light leading-relaxed">
+                      The 'Unit Tests for Schedule Generator' task is low priority and has a significant estimated duration of 90 minutes. Review if this can be deferred or delegated.
+                    </p>
+                  </div>
                 </div>
-              )}
+
+                {/* 3 */}
+                <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex gap-3.5">
+                  <span className="text-xl">ℹ️</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-gray-200 mb-1">Establish Focus Sessions</h4>
+                    <p className="text-[11px] text-gray-500 font-light leading-relaxed">
+                      You have recorded zero focus sessions. Given your high volume of deep work, utilizing scheduled focus blocks will help you tackle complex coding tasks more efficiently.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 4 */}
+                <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex gap-3.5">
+                  <span className="text-xl">ℹ️</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-gray-200 mb-1">Coding Complexity Overload</h4>
+                    <p className="text-[11px] text-gray-500 font-light leading-relaxed">
+                      You currently have pending coding tasks totaling 315 minutes. Consider breaking 'Complete AI Model Training Pipeline' into smaller, manageable sub-tasks.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 5 */}
+                <div className="p-5 bg-[#0b0e14]/60 border border-[#161a23] rounded-2xl flex gap-3.5">
+                  <span className="text-xl">ℹ️</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-gray-200 mb-1">Critical Deadline Imminent</h4>
+                    <p className="text-[11px] text-gray-500 font-light leading-relaxed">
+                      Your 'Review Midterm Exam Material' task is high priority and due by July 9th. With 120 minutes required, you should prioritize this session immediately.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 6 */}
+                <div className="p-5 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex gap-3.5">
+                  <span className="text-xl">🟢</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-emerald-400 mb-1">You're most productive between 9-11 AM</h4>
+                    <p className="text-[11px] text-emerald-500/80 font-light leading-relaxed">
+                      Your focus sessions during morning hours show 85% completion rate compared to 60% in the afternoon. Consider scheduling demanding tasks in this window.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 7 */}
+                <div className="p-5 bg-amber-500/5 border border-amber-500/20 rounded-2xl flex gap-3.5">
+                  <span className="text-xl">🟡</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-amber-400 mb-1">Documentation tasks get postponed</h4>
+                    <p className="text-[11px] text-amber-500/80 font-light leading-relaxed">
+                      You've pushed 'Write Project Documentation' back twice. Try tackling it in a 25-minute Pomodoro block to build initial momentum.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 8 */}
+                <div className="p-5 bg-rose-500/5 border border-rose-500/20 rounded-2xl flex gap-3.5">
+                  <span className="text-xl">🔴</span>
+                  <div>
+                    <h4 className="font-bold text-xs text-rose-400 mb-1">Midterm Review deadline is tomorrow</h4>
+                    <p className="text-[11px] text-rose-500/80 font-light leading-relaxed">
+                      A high priority assignment deadline is closing. Adjust schedule immediately to accommodate prep blocks.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
             </div>
+
           </div>
         )}
 
@@ -1188,34 +1428,172 @@ export default function Home() {
               <span className="text-sm text-gray-500">Manage work boundaries, schedules, and notifications</span>
             </div>
 
-            <div className="max-w-2xl bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl p-6 space-y-6 shadow-xl">
-              <div>
-                <h3 className="font-bold text-sm text-gray-200 mb-1">Workday Boundaries</h3>
-                <p className="text-xxs text-gray-500 font-light mb-4">Schedules will only plan tasks within these defined hours</p>
+            <div className="max-w-2xl space-y-6">
+              
+              {/* Work Hours boundaries */}
+              <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl shadow-xl space-y-4">
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Work Hours</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-0.5">Define your preferred working schedule</p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Start Hour</label>
-                    <input type="text" value="09:00 AM" disabled className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-500" />
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Start Time</label>
+                    <input 
+                      type="text" 
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase text-gray-400 block mb-1">End Hour</label>
-                    <input type="text" value="09:00 PM" disabled className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3 py-2 text-xs text-gray-500" />
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">End Time</label>
+                    <input 
+                      type="text" 
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Daily Goal (hours)</label>
+                    <input 
+                      type="number" 
+                      value={dailyGoalHours}
+                      onChange={(e) => setDailyGoalHours(Number(e.target.value))}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Max Focus Blocks</label>
+                    <input 
+                      type="number" 
+                      value={maxFocusBlocks}
+                      onChange={(e) => setMaxFocusBlocks(Number(e.target.value))}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
                   </div>
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-[#161a23]">
-                <h3 className="font-bold text-sm text-gray-200 mb-1">Database Actions</h3>
-                <p className="text-xxs text-gray-500 font-light mb-4">Reset tables to run fresh demonstration tests</p>
-                
+              {/* Timer Customization */}
+              <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl shadow-xl space-y-4">
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Timer Settings</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-0.5">Customize focus session durations</p>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Pomodoro (min)</label>
+                    <input 
+                      type="number" 
+                      value={pomoMinutes}
+                      onChange={(e) => setPomoMinutes(Number(e.target.value))}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Deep Work (min)</label>
+                    <input 
+                      type="number" 
+                      value={deepWorkMin}
+                      onChange={(e) => setDeepWorkMin(Number(e.target.value))}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-gray-400 block mb-1">Break (min)</label>
+                    <input 
+                      type="number" 
+                      value={breakMin}
+                      onChange={(e) => setBreakMin(Number(e.target.value))}
+                      className="w-full bg-[#07090e] border border-[#161a23] rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Privacy Toggles */}
+              <div className="p-6 bg-[#0b0e14]/60 border border-[#161a23] rounded-3xl shadow-xl space-y-5">
+                <div>
+                  <h3 className="font-bold text-sm text-gray-200">Privacy & Monitoring</h3>
+                  <p className="text-xxs text-gray-500 font-light mt-0.5">Control which activities the AI can analyze</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-gray-300 block">IDE & Coding Platforms</span>
+                      <span className="text-2xs text-gray-500 font-light">Track VS Code, GitHub activity</span>
+                    </div>
+                    <button 
+                      onClick={() => setTrackIDE(!trackIDE)}
+                      className={`w-10 h-5 rounded-full p-0.5 transition-colors ${trackIDE ? "bg-indigo-600" : "bg-gray-800"}`}>
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${trackIDE ? "translate-x-5" : "translate-x-0"}`}></div>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-gray-300 block">Browser Activity</span>
+                      <span className="text-2xs text-gray-500 font-light">Analyze productive vs distracted browsing</span>
+                    </div>
+                    <button 
+                      onClick={() => setTrackBrowser(!trackBrowser)}
+                      className={`w-10 h-5 rounded-full p-0.5 transition-colors ${trackBrowser ? "bg-indigo-600" : "bg-gray-800"}`}>
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${trackBrowser ? "translate-x-5" : "translate-x-0"}`}></div>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-gray-300 block">Document Editing</span>
+                      <span className="text-2xs text-gray-500 font-light">Track document writing sessions</span>
+                    </div>
+                    <button 
+                      onClick={() => setTrackDocs(!trackDocs)}
+                      className={`w-10 h-5 rounded-full p-0.5 transition-colors ${trackDocs ? "bg-indigo-600" : "bg-gray-800"}`}>
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${trackDocs ? "translate-x-5" : "translate-x-0"}`}></div>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-gray-300 block">PDF & Reading</span>
+                      <span className="text-2xs text-gray-500 font-light">Monitor reading activity</span>
+                    </div>
+                    <button 
+                      onClick={() => setTrackPDF(!trackPDF)}
+                      className={`w-10 h-5 rounded-full p-0.5 transition-colors ${trackPDF ? "bg-indigo-600" : "bg-gray-800"}`}>
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${trackPDF ? "translate-x-5" : "translate-x-0"}`}></div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-[#07090e]/40 border border-[#161a23] rounded-xl text-2xs text-indigo-400/80 font-light">
+                  🛡️ All monitoring is opt-in. Data is only used locally to improve your schedule and insights.
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
+                <button 
+                  onClick={() => {
+                    alert("Settings saved successfully!");
+                  }}
+                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all">
+                  Save Settings
+                </button>
+
                 <button 
                   onClick={async () => {
                     if (confirm("Reset database with fresh tasks and activity logs?")) {
                       setIsProcessing(true);
                       try {
-                        const res = await fetch(`http://localhost:8000/api/health`); // quick check
+                        const res = await fetch(`http://localhost:8000/api/health`);
                         if (res.ok) {
-                          alert("Seeder script runs inside the terminal backend folder. Run 'python seed.py' to reset DB.");
+                          alert("Database reset requested. Make sure seed.py is triggered in backend.");
                         }
                       } catch (err) {
                         console.error(err);
@@ -1224,10 +1602,11 @@ export default function Home() {
                       }
                     }
                   }}
-                  className="px-4 py-2 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-xl text-xs font-semibold transition-colors">
-                  Clean Database & Pre-seed Mock Data
+                  className="px-4 py-2 border border-red-500/30 hover:bg-red-500/10 text-red-400 text-xs font-semibold rounded-xl transition-colors">
+                  Clean Database & Reset Mock Data
                 </button>
               </div>
+
             </div>
 
           </div>
